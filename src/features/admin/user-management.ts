@@ -1,4 +1,4 @@
-import { createClient } from '@supabase/supabase-js';
+import { createClient, type PostgrestError } from '@supabase/supabase-js';
 import { supabase } from '@/lib/supabase';
 import type { UserRole } from '@/types/database';
 
@@ -11,13 +11,23 @@ export interface CreateUserInput {
   schoolName?: string | null;
 }
 
+// PostgREST error code for "function not found in schema cache"
+const FN_NOT_FOUND = 'PGRST202';
+
+const MIGRATION_HINT =
+  'Apply migration 005_admin_user_management.sql in the Supabase dashboard to enable this feature.';
+
 // Create a user from the admin browser without disturbing the admin's session.
-// 1. Temp Supabase client (no session persistence) calls auth.signUp() — this
-//    inserts auth.users + auth.identities and fires the on_auth_user_created
-//    trigger that creates the profile row.
-// 2. The admin's own session then calls admin_confirm_user RPC to set the
-//    role/grade/school and mark the email as confirmed so the new user can
-//    sign in immediately without email verification.
+//
+// Flow:
+//   1. A temp Supabase client (no session persistence) calls auth.signUp().
+//      GoTrue creates auth.users + auth.identities and the
+//      on_auth_user_created trigger inserts the matching profile with
+//      role/full_name/grade_level taken from raw_user_meta_data.
+//   2. We try the admin_confirm_user RPC for school_name + email confirmation.
+//      If the RPC doesn't exist yet (migration 005 not applied), we fall back
+//      to a direct UPDATE on profiles for school_name. The Supabase project
+//      already auto-confirms emails, so the user can sign in either way.
 export async function adminCreateUser(input: CreateUserInput): Promise<string> {
   const url = import.meta.env.VITE_SUPABASE_URL as string;
   const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
@@ -48,22 +58,36 @@ export async function adminCreateUser(input: CreateUserInput): Promise<string> {
   // Drop any session the temp client may have stored
   await temp.auth.signOut().catch(() => undefined);
 
-  // Confirm + finalize profile under the admin's session
-  const { error: rpcError } = await supabase.rpc('admin_confirm_user', {
+  // Try the RPC first
+  const rpc = await supabase.rpc('admin_confirm_user', {
     p_user_id: data.user.id,
     p_role: input.role,
     p_grade_level: input.gradeLevel ?? null,
     p_school_name: input.schoolName ?? null,
     p_full_name: input.fullName,
   });
-  if (rpcError) throw new Error(`User created but confirmation failed: ${rpcError.message}`);
+
+  if (rpc.error) {
+    // Migration 005 not applied yet — fall back to direct profile update.
+    // The trigger already filled in role/grade_level/full_name from metadata.
+    // We only need to set school_name (which the trigger doesn't touch).
+    if (rpc.error.code === FN_NOT_FOUND && input.schoolName) {
+      const upd = await supabase
+        .from('profiles')
+        .update({ school_name: input.schoolName })
+        .eq('id', data.user.id);
+      if (upd.error) throw new Error(upd.error.message);
+    } else if (rpc.error.code !== FN_NOT_FOUND) {
+      throw new Error(rpc.error.message);
+    }
+  }
 
   return data.user.id;
 }
 
 export async function adminDeleteUser(userId: string): Promise<void> {
   const { error } = await supabase.rpc('admin_delete_user', { p_user_id: userId });
-  if (error) throw new Error(error.message);
+  if (error) throw friendlyError(error, 'delete');
 }
 
 export async function adminResetPassword(userId: string, newPassword: string): Promise<void> {
@@ -71,7 +95,7 @@ export async function adminResetPassword(userId: string, newPassword: string): P
     p_user_id: userId,
     p_new_password: newPassword,
   });
-  if (error) throw new Error(error.message);
+  if (error) throw friendlyError(error, 'reset_password');
 }
 
 export async function adminUpdateProfile(
@@ -82,4 +106,11 @@ export async function adminUpdateProfile(
   if (updates.role && updates.role !== 'student') payload.grade_level = null;
   const { error } = await supabase.from('profiles').update(payload).eq('id', userId);
   if (error) throw new Error(error.message);
+}
+
+function friendlyError(err: PostgrestError, _action: 'delete' | 'reset_password'): Error {
+  if (err.code === FN_NOT_FOUND) {
+    return new Error(`This action requires the admin user-management RPCs. ${MIGRATION_HINT}`);
+  }
+  return new Error(err.message);
 }
