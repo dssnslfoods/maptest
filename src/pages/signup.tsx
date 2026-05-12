@@ -6,6 +6,7 @@ import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { AmbientBackground } from '@/components/ambient-background';
+import { DeveloperFooter } from '@/components/developer-footer';
 import { supabase } from '@/lib/supabase';
 import { useAuthStore } from '@/store/auth';
 import { toast } from 'sonner';
@@ -52,8 +53,9 @@ export function SignupPage() {
   };
 
   return (
-    <div className="relative flex min-h-screen items-center justify-center p-4">
+    <div className="relative flex min-h-screen flex-col items-center justify-center p-4">
       <AmbientBackground />
+      <div className="flex flex-1 items-center justify-center">
       <Card className="w-full max-w-md p-2">
         <CardHeader>
           <div className="mb-3 inline-flex items-center gap-2">
@@ -143,6 +145,8 @@ export function SignupPage() {
           </form>
         </CardContent>
       </Card>
+      </div>
+      <DeveloperFooter onAmbient />
     </div>
   );
 }

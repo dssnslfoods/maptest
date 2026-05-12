@@ -15,6 +15,7 @@ import type {
   TestSession,
 } from '@/types/database';
 import { AmbientBackground } from '@/components/ambient-background';
+import { DeveloperFooter } from '@/components/developer-footer';
 import { BookOpen, Calculator, Clock, Loader2, LogOut } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -318,6 +319,7 @@ export function TestActivePage() {
           </Card>
         )}
       </main>
+      <DeveloperFooter onAmbient />
     </div>
   );
 }

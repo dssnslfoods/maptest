@@ -3,6 +3,7 @@ import { useAuthStore } from '@/store/auth';
 import { useSignOut } from '@/hooks/use-auth';
 import { Button } from '@/components/ui/button';
 import { AmbientBackground } from '@/components/ambient-background';
+import { DeveloperFooter } from '@/components/developer-footer';
 import {
   BookOpen,
   Home,
@@ -136,6 +137,7 @@ export function AppLayout() {
       <main className="flex-1 pt-4">
         <Outlet />
       </main>
+      <DeveloperFooter />
     </div>
   );
 }
