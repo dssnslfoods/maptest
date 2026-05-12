@@ -10,6 +10,10 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { format } from 'date-fns';
 import { GRADE_LABELS } from '@/lib/utils';
 import type { TestSession } from '@/types/database';
+
+interface DashboardSession extends TestSession {
+  profiles: { full_name: string | null; school_name: string | null } | null;
+}
 import { ArrowRight, Calendar, Play, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -23,16 +27,16 @@ export function DashboardPage() {
   const { data: sessions, isLoading } = useQuery({
     queryKey: ['dashboard-sessions', profile?.id],
     enabled: !!profile,
-    queryFn: async (): Promise<TestSession[]> => {
+    queryFn: async (): Promise<DashboardSession[]> => {
       const q = supabase
         .from('test_sessions')
-        .select('*')
+        .select('*, profiles:student_id(full_name, school_name)')
         .order('started_at', { ascending: false })
         .limit(10);
       if (profile?.role === 'student') q.eq('student_id', profile.id);
       const { data, error } = await q;
       if (error) throw error;
-      return (data ?? []) as TestSession[];
+      return (data ?? []) as unknown as DashboardSession[];
     },
   });
 
@@ -129,6 +133,7 @@ export function DashboardPage() {
               <TableHeader>
                 <TableRow>
                   <TableHead>Date</TableHead>
+                  {isTeacherOrAdmin && <TableHead>Student</TableHead>}
                   <TableHead>Grade</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead>English RIT</TableHead>
@@ -142,6 +147,18 @@ export function DashboardPage() {
                     <TableCell className="whitespace-nowrap">
                       {format(new Date(s.started_at), 'PP')}
                     </TableCell>
+                    {isTeacherOrAdmin && (
+                      <TableCell>
+                        <div className="font-medium leading-tight">
+                          {s.profiles?.full_name ?? '—'}
+                        </div>
+                        {s.profiles?.school_name && (
+                          <div className="text-xs text-muted-foreground">
+                            {s.profiles.school_name}
+                          </div>
+                        )}
+                      </TableCell>
+                    )}
                     <TableCell>{GRADE_LABELS[s.grade_level_taken]}</TableCell>
                     <TableCell>
                       <Badge
