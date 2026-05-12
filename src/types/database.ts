@@ -12,6 +12,7 @@ export interface Profile {
   grade_level: number | null;
   school_name: string | null;
   student_id_external: string | null;
+  teacher_id: string | null;
   created_at: string;
   updated_at: string;
 }

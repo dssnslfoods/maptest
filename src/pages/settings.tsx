@@ -180,7 +180,7 @@ export function SettingsPage() {
         </CardContent>
       </Card>
 
-      {profile?.role === 'admin' && <UserManagementSection />}
+      {(profile?.role === 'admin' || profile?.role === 'teacher') && <UserManagementSection />}
 
       {profile?.role === 'admin' && (
         <Card>

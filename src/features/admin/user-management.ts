@@ -9,25 +9,23 @@ export interface CreateUserInput {
   role: UserRole;
   gradeLevel?: number | null;
   schoolName?: string | null;
+  teacherId?: string | null; // admin only — assign a student to a teacher
 }
 
 // PostgREST error code for "function not found in schema cache"
 const FN_NOT_FOUND = 'PGRST202';
-
 const MIGRATION_HINT =
-  'Apply migration 005_admin_user_management.sql in the Supabase dashboard to enable this feature.';
+  'Apply migrations 005 / 008 / 009 in the Supabase dashboard to enable this feature.';
 
-// Create a user from the admin browser without disturbing the admin's session.
+// Create a user from the browser without disturbing the caller's session.
 //
-// Flow:
 //   1. A temp Supabase client (no session persistence) calls auth.signUp().
 //      GoTrue creates auth.users + auth.identities and the
-//      on_auth_user_created trigger inserts the matching profile with
-//      role/full_name/grade_level taken from raw_user_meta_data.
-//   2. We try the admin_confirm_user RPC for school_name + email confirmation.
-//      If the RPC doesn't exist yet (migration 005 not applied), we fall back
-//      to a direct UPDATE on profiles for school_name. The Supabase project
-//      already auto-confirms emails, so the user can sign in either way.
+//      on_auth_user_created trigger inserts the matching profile.
+//   2. The caller's own session finalizes the new user via the RPC matching
+//      the target role:
+//        - student → teacher_confirm_student (works for teacher + admin)
+//        - teacher/admin → admin_confirm_user (admin only)
 export async function adminCreateUser(input: CreateUserInput): Promise<string> {
   const url = import.meta.env.VITE_SUPABASE_URL as string;
   const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
@@ -54,63 +52,126 @@ export async function adminCreateUser(input: CreateUserInput): Promise<string> {
   });
   if (error) throw new Error(error.message);
   if (!data.user) throw new Error('Sign-up returned no user');
-
-  // Drop any session the temp client may have stored
   await temp.auth.signOut().catch(() => undefined);
 
-  // Try the RPC first
-  const rpc = await supabase.rpc('admin_confirm_user', {
-    p_user_id: data.user.id,
-    p_role: input.role,
-    p_grade_level: input.gradeLevel ?? null,
-    p_school_name: input.schoolName ?? null,
-    p_full_name: input.fullName,
-  });
+  const userId = data.user.id;
 
-  if (rpc.error) {
-    // Migration 005 not applied yet — fall back to direct profile update.
-    // The trigger already filled in role/grade_level/full_name from metadata.
-    // We only need to set school_name (which the trigger doesn't touch).
-    if (rpc.error.code === FN_NOT_FOUND && input.schoolName) {
-      const upd = await supabase
-        .from('profiles')
-        .update({ school_name: input.schoolName })
-        .eq('id', data.user.id);
-      if (upd.error) throw new Error(upd.error.message);
-    } else if (rpc.error.code !== FN_NOT_FOUND) {
-      throw new Error(rpc.error.message);
+  if (input.role === 'student') {
+    const rpc = await supabase.rpc('teacher_confirm_student', {
+      p_user_id: userId,
+      p_grade_level: input.gradeLevel ?? 0,
+      p_school_name: input.schoolName ?? null,
+      p_full_name: input.fullName,
+      p_teacher_id: input.teacherId ?? null,
+    });
+    if (rpc.error) {
+      if (rpc.error.code === FN_NOT_FOUND) {
+        // Migration 009 not applied yet — fall back to direct profile update.
+        // teacher_id can't be set from the client without admin rights, but
+        // school_name + grade can. Admin can also patch teacher_id directly
+        // via the same UPDATE since their RLS allows it.
+        await fallbackProfileUpdate(userId, {
+          ...input,
+          role: 'student',
+        });
+      } else {
+        throw new Error(rpc.error.message);
+      }
+    }
+  } else {
+    // teacher / admin — admin-only path
+    const rpc = await supabase.rpc('admin_confirm_user', {
+      p_user_id: userId,
+      p_role: input.role,
+      p_grade_level: input.gradeLevel ?? null,
+      p_school_name: input.schoolName ?? null,
+      p_full_name: input.fullName,
+    });
+    if (rpc.error) {
+      if (rpc.error.code === FN_NOT_FOUND) {
+        await fallbackProfileUpdate(userId, input);
+      } else {
+        throw new Error(rpc.error.message);
+      }
     }
   }
 
-  return data.user.id;
+  return userId;
 }
 
-export async function adminDeleteUser(userId: string): Promise<void> {
-  const { error } = await supabase.rpc('admin_delete_user', { p_user_id: userId });
-  if (error) throw friendlyError(error, 'delete');
+async function fallbackProfileUpdate(userId: string, input: CreateUserInput): Promise<void> {
+  const patch: Record<string, unknown> = {
+    full_name: input.fullName,
+    role: input.role,
+    school_name: input.schoolName ?? null,
+    updated_at: new Date().toISOString(),
+  };
+  if (input.role === 'student') {
+    patch.grade_level = input.gradeLevel ?? null;
+    if (input.teacherId !== undefined) patch.teacher_id = input.teacherId;
+  } else {
+    patch.grade_level = null;
+  }
+  const upd = await supabase.from('profiles').update(patch).eq('id', userId);
+  if (upd.error) throw new Error(upd.error.message);
 }
 
-export async function adminResetPassword(userId: string, newPassword: string): Promise<void> {
-  const { error } = await supabase.rpc('admin_reset_password', {
+// Delete a user. Teachers may only delete their own students; admins anyone.
+export async function adminDeleteUser(
+  userId: string,
+  options: { isStudentOfCaller: boolean; callerRole: UserRole },
+): Promise<void> {
+  const fn = options.callerRole === 'admin' ? 'admin_delete_user' : 'teacher_delete_student';
+  const { error } = await supabase.rpc(fn, { p_user_id: userId });
+  if (error) {
+    if (error.code === FN_NOT_FOUND) {
+      throw new Error(`Delete requires the user-management RPCs. ${MIGRATION_HINT}`);
+    }
+    throw friendlyError(error);
+  }
+  // Silence unused warning — kept for API symmetry with caller filter logic.
+  void options.isStudentOfCaller;
+}
+
+// Reset a user's password.
+export async function adminResetPassword(
+  userId: string,
+  newPassword: string,
+  callerRole: UserRole,
+): Promise<void> {
+  const fn = callerRole === 'admin' ? 'admin_reset_password' : 'teacher_reset_student_password';
+  const { error } = await supabase.rpc(fn, {
     p_user_id: userId,
     p_new_password: newPassword,
   });
-  if (error) throw friendlyError(error, 'reset_password');
+  if (error) {
+    if (error.code === FN_NOT_FOUND) {
+      throw new Error(`Password reset requires the user-management RPCs. ${MIGRATION_HINT}`);
+    }
+    throw friendlyError(error);
+  }
 }
 
+// Direct profile patch — admin RLS allows all, teacher RLS allows own students.
 export async function adminUpdateProfile(
   userId: string,
-  updates: { full_name?: string; role?: UserRole; grade_level?: number | null; school_name?: string | null },
+  updates: {
+    full_name?: string;
+    role?: UserRole;
+    grade_level?: number | null;
+    school_name?: string | null;
+    teacher_id?: string | null;
+  },
 ): Promise<void> {
   const payload: Record<string, unknown> = { ...updates, updated_at: new Date().toISOString() };
-  if (updates.role && updates.role !== 'student') payload.grade_level = null;
+  if (updates.role && updates.role !== 'student') {
+    payload.grade_level = null;
+    payload.teacher_id = null;
+  }
   const { error } = await supabase.from('profiles').update(payload).eq('id', userId);
   if (error) throw new Error(error.message);
 }
 
-function friendlyError(err: PostgrestError, _action: 'delete' | 'reset_password'): Error {
-  if (err.code === FN_NOT_FOUND) {
-    return new Error(`This action requires the admin user-management RPCs. ${MIGRATION_HINT}`);
-  }
+function friendlyError(err: PostgrestError): Error {
   return new Error(err.message);
 }

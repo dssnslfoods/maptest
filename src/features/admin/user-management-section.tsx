@@ -15,6 +15,7 @@ import { toast } from 'sonner';
 import {
   Eye,
   EyeOff,
+  GraduationCap,
   Key,
   Loader2,
   Pencil,
@@ -36,14 +37,20 @@ import type { Profile, UserRole } from '@/types/database';
 export function UserManagementSection() {
   const qc = useQueryClient();
   const me = useAuthStore((s) => s.profile);
+  const isAdmin = me?.role === 'admin';
+  const isTeacher = me?.role === 'teacher';
   const [showCreate, setShowCreate] = useState(false);
   const [search, setSearch] = useState('');
   const [roleFilter, setRoleFilter] = useState<'all' | UserRole>('all');
   const [editTarget, setEditTarget] = useState<Profile | null>(null);
   const [resetTarget, setResetTarget] = useState<Profile | null>(null);
 
+  // RLS will already scope what comes back:
+  //   admin → everyone
+  //   teacher → own students + self
   const { data: users, isLoading } = useQuery({
-    queryKey: ['admin-all-users'],
+    queryKey: ['admin-all-users', me?.id, me?.role],
+    enabled: !!me,
     queryFn: async (): Promise<Profile[]> => {
       const { data, error } = await supabase
         .from('profiles')
@@ -54,17 +61,39 @@ export function UserManagementSection() {
     },
   });
 
-  const filtered = (users ?? []).filter((u) => {
+  // Teachers list — admins use this for the "assign to teacher" dropdown when
+  // creating/editing students. Teachers don't need it.
+  const { data: teachers } = useQuery({
+    queryKey: ['admin-teachers'],
+    enabled: isAdmin,
+    queryFn: async (): Promise<Profile[]> => {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('role', 'teacher')
+        .order('full_name');
+      if (error) throw error;
+      return (data ?? []) as Profile[];
+    },
+  });
+
+  const visibleUsers = (users ?? []).filter((u) => {
+    // For teachers, hide their own admin/teacher row noise — but show themselves
+    if (isTeacher && u.id !== me?.id && u.role !== 'student') return false;
     const okSearch =
       !search ||
       u.full_name.toLowerCase().includes(search.toLowerCase()) ||
       (u.school_name ?? '').toLowerCase().includes(search.toLowerCase());
-    const okRole = roleFilter === 'all' || u.role === roleFilter;
+    const okRole = !isAdmin || roleFilter === 'all' || u.role === roleFilter;
     return okSearch && okRole;
   });
 
   const deleteUser = useMutation({
-    mutationFn: adminDeleteUser,
+    mutationFn: (userId: string) =>
+      adminDeleteUser(userId, {
+        isStudentOfCaller: true,
+        callerRole: me!.role,
+      }),
     onSuccess: () => {
       toast.success('User deleted');
       qc.invalidateQueries({ queryKey: ['admin-all-users'] });
@@ -82,26 +111,42 @@ export function UserManagementSection() {
     <Card>
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
-          <Users className="h-5 w-5 text-primary" />
-          User management
+          {isTeacher ? (
+            <GraduationCap className="h-5 w-5 text-primary" />
+          ) : (
+            <Users className="h-5 w-5 text-primary" />
+          )}
+          {isTeacher ? 'My students' : 'User management'}
         </CardTitle>
-        <CardDescription>Create student, teacher, and admin accounts. Edit roles or delete users.</CardDescription>
+        <CardDescription>
+          {isTeacher
+            ? 'Create and manage the students assigned to you.'
+            : 'Create student, teacher, and admin accounts. Edit roles or delete users.'}
+        </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="flex flex-wrap items-center gap-2">
-          <Badge variant="info">{counts.student} students</Badge>
-          <Badge variant="success">{counts.teacher} teachers</Badge>
-          <Badge variant="warning">{counts.admin} admins</Badge>
+          {isAdmin ? (
+            <>
+              <Badge variant="info">{counts.student} students</Badge>
+              <Badge variant="success">{counts.teacher} teachers</Badge>
+              <Badge variant="warning">{counts.admin} admins</Badge>
+            </>
+          ) : (
+            <Badge variant="info">{counts.student} students</Badge>
+          )}
           <div className="ml-auto">
             <Button onClick={() => setShowCreate((s) => !s)} variant={showCreate ? 'ghost' : 'default'}>
               {showCreate ? <X className="h-4 w-4" /> : <UserPlus className="h-4 w-4" />}
-              {showCreate ? 'Close' : 'New user'}
+              {showCreate ? 'Close' : isTeacher ? 'New student' : 'New user'}
             </Button>
           </div>
         </div>
 
         {showCreate && (
           <CreateUserForm
+            isAdmin={isAdmin}
+            teachers={teachers ?? []}
             onDone={() => {
               setShowCreate(false);
               qc.invalidateQueries({ queryKey: ['admin-all-users'] });
@@ -109,19 +154,21 @@ export function UserManagementSection() {
           />
         )}
 
-        <div className="grid gap-3 sm:grid-cols-3">
+        <div className={`grid gap-3 ${isAdmin ? 'sm:grid-cols-3' : 'sm:grid-cols-1'}`}>
           <Input
             placeholder="Search by name or school…"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="sm:col-span-2"
+            className={isAdmin ? 'sm:col-span-2' : ''}
           />
-          <Select value={roleFilter} onChange={(e) => setRoleFilter(e.target.value as 'all' | UserRole)}>
-            <option value="all">All roles</option>
-            <option value="student">Student</option>
-            <option value="teacher">Teacher</option>
-            <option value="admin">Admin</option>
-          </Select>
+          {isAdmin && (
+            <Select value={roleFilter} onChange={(e) => setRoleFilter(e.target.value as 'all' | UserRole)}>
+              <option value="all">All roles</option>
+              <option value="student">Student</option>
+              <option value="teacher">Teacher</option>
+              <option value="admin">Admin</option>
+            </Select>
+          )}
         </div>
 
         {isLoading ? (
@@ -131,14 +178,14 @@ export function UserManagementSection() {
             <TableHeader>
               <TableRow>
                 <TableHead>Name</TableHead>
-                <TableHead>Role</TableHead>
+                {isAdmin && <TableHead>Role</TableHead>}
                 <TableHead>Grade</TableHead>
                 <TableHead>School</TableHead>
                 <TableHead className="text-right">Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {filtered.map((u) => (
+              {visibleUsers.map((u) => (
                 <TableRow key={u.id}>
                   <TableCell className="font-medium">
                     {u.full_name}
@@ -148,42 +195,49 @@ export function UserManagementSection() {
                       </Badge>
                     )}
                   </TableCell>
-                  <TableCell>
-                    <Badge
-                      variant={u.role === 'admin' ? 'warning' : u.role === 'teacher' ? 'success' : 'info'}
-                    >
-                      {u.role}
-                    </Badge>
-                  </TableCell>
+                  {isAdmin && (
+                    <TableCell>
+                      <Badge
+                        variant={u.role === 'admin' ? 'warning' : u.role === 'teacher' ? 'success' : 'info'}
+                      >
+                        {u.role}
+                      </Badge>
+                    </TableCell>
+                  )}
                   <TableCell>{u.grade_level !== null ? GRADE_LABELS[u.grade_level] : '—'}</TableCell>
                   <TableCell className="text-xs text-muted-foreground">{u.school_name ?? '—'}</TableCell>
                   <TableCell className="space-x-1 text-right">
-                    <Button size="icon" variant="ghost" onClick={() => setEditTarget(u)} title="Edit">
-                      <Pencil className="h-4 w-4" />
-                    </Button>
-                    <Button size="icon" variant="ghost" onClick={() => setResetTarget(u)} title="Reset password">
-                      <Key className="h-4 w-4" />
-                    </Button>
-                    <Button
-                      size="icon"
-                      variant="ghost"
-                      onClick={() => {
-                        if (u.id === me?.id) {
-                          toast.error('You cannot delete your own account');
-                          return;
-                        }
-                        if (confirm(`Delete ${u.full_name}? This cannot be undone.`)) deleteUser.mutate(u.id);
-                      }}
-                      title="Delete"
-                    >
-                      <Trash2 className="h-4 w-4 text-destructive" />
-                    </Button>
+                    {/* Teachers can only edit own students (id != me, role=student) */}
+                    {(isAdmin || (isTeacher && u.role === 'student' && u.id !== me?.id)) && (
+                      <>
+                        <Button size="icon" variant="ghost" onClick={() => setEditTarget(u)} title="Edit">
+                          <Pencil className="h-4 w-4" />
+                        </Button>
+                        <Button size="icon" variant="ghost" onClick={() => setResetTarget(u)} title="Reset password">
+                          <Key className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          onClick={() => {
+                            if (u.id === me?.id) {
+                              toast.error('You cannot delete your own account');
+                              return;
+                            }
+                            if (confirm(`Delete ${u.full_name}? This cannot be undone.`)) deleteUser.mutate(u.id);
+                          }}
+                          title="Delete"
+                        >
+                          <Trash2 className="h-4 w-4 text-destructive" />
+                        </Button>
+                      </>
+                    )}
                   </TableCell>
                 </TableRow>
               ))}
-              {filtered.length === 0 && (
+              {visibleUsers.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={5} className="py-6 text-center text-sm text-muted-foreground">
+                  <TableCell colSpan={isAdmin ? 5 : 4} className="py-6 text-center text-sm text-muted-foreground">
                     No users match the filter
                   </TableCell>
                 </TableRow>
@@ -198,6 +252,8 @@ export function UserManagementSection() {
           {editTarget && (
             <EditUserForm
               user={editTarget}
+              isAdmin={isAdmin}
+              teachers={teachers ?? []}
               onDone={() => {
                 setEditTarget(null);
                 qc.invalidateQueries({ queryKey: ['admin-all-users'] });
@@ -210,7 +266,11 @@ export function UserManagementSection() {
       <Dialog open={!!resetTarget} onOpenChange={(o) => !o && setResetTarget(null)}>
         <DialogContent onClose={() => setResetTarget(null)}>
           {resetTarget && (
-            <ResetPasswordForm user={resetTarget} onDone={() => setResetTarget(null)} />
+            <ResetPasswordForm
+              user={resetTarget}
+              callerRole={me!.role}
+              onDone={() => setResetTarget(null)}
+            />
           )}
         </DialogContent>
       </Dialog>
@@ -218,7 +278,15 @@ export function UserManagementSection() {
   );
 }
 
-function CreateUserForm({ onDone }: { onDone: () => void }) {
+function CreateUserForm({
+  isAdmin,
+  teachers,
+  onDone,
+}: {
+  isAdmin: boolean;
+  teachers: Profile[];
+  onDone: () => void;
+}) {
   const [form, setForm] = useState({
     email: '',
     password: '',
@@ -226,6 +294,7 @@ function CreateUserForm({ onDone }: { onDone: () => void }) {
     role: 'student' as UserRole,
     gradeLevel: '5',
     schoolName: '',
+    teacherId: teachers[0]?.id ?? '',
   });
   const [showPw, setShowPw] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -242,11 +311,15 @@ function CreateUserForm({ onDone }: { onDone: () => void }) {
         email: form.email.trim(),
         password: form.password,
         fullName: form.fullName.trim(),
-        role: form.role,
-        gradeLevel: form.role === 'student' ? Number(form.gradeLevel) : null,
+        role: isAdmin ? form.role : 'student',
+        gradeLevel: (isAdmin ? form.role : 'student') === 'student' ? Number(form.gradeLevel) : null,
         schoolName: form.schoolName.trim() || null,
+        teacherId:
+          isAdmin && form.role === 'student' && form.teacherId
+            ? form.teacherId
+            : null,
       });
-      toast.success(`${form.role} account created`);
+      toast.success(`Account created`);
       onDone();
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : 'Failed to create user');
@@ -255,11 +328,13 @@ function CreateUserForm({ onDone }: { onDone: () => void }) {
     }
   };
 
+  const effectiveRole: UserRole = isAdmin ? form.role : 'student';
+
   return (
-    <form onSubmit={submit} className="rounded-md border bg-muted/30 p-4">
+    <form onSubmit={submit} className="rounded-2xl border border-white/50 bg-white/40 p-4 backdrop-blur-md">
       <div className="mb-3 flex items-center gap-2 text-sm font-medium">
         <UserPlus className="h-4 w-4 text-primary" />
-        Create a new account
+        {isAdmin ? 'Create a new account' : 'Create a new student'}
       </div>
       <div className="grid gap-3 sm:grid-cols-2">
         <div className="space-y-1.5">
@@ -303,15 +378,17 @@ function CreateUserForm({ onDone }: { onDone: () => void }) {
             onChange={(e) => setForm((f) => ({ ...f, fullName: e.target.value }))}
           />
         </div>
-        <div className="space-y-1.5">
-          <Label>Role</Label>
-          <Select value={form.role} onChange={(e) => setForm((f) => ({ ...f, role: e.target.value as UserRole }))}>
-            <option value="student">Student</option>
-            <option value="teacher">Teacher</option>
-            <option value="admin">Admin</option>
-          </Select>
-        </div>
-        {form.role === 'student' && (
+        {isAdmin && (
+          <div className="space-y-1.5">
+            <Label>Role</Label>
+            <Select value={form.role} onChange={(e) => setForm((f) => ({ ...f, role: e.target.value as UserRole }))}>
+              <option value="student">Student</option>
+              <option value="teacher">Teacher</option>
+              <option value="admin">Admin</option>
+            </Select>
+          </div>
+        )}
+        {effectiveRole === 'student' && (
           <div className="space-y-1.5">
             <Label>Grade level</Label>
             <Select
@@ -321,6 +398,22 @@ function CreateUserForm({ onDone }: { onDone: () => void }) {
               {Object.entries(GRADE_LABELS).map(([k, v]) => (
                 <option key={k} value={k}>
                   {v}
+                </option>
+              ))}
+            </Select>
+          </div>
+        )}
+        {isAdmin && effectiveRole === 'student' && (
+          <div className="space-y-1.5 sm:col-span-2">
+            <Label>Assigned teacher</Label>
+            <Select
+              value={form.teacherId}
+              onChange={(e) => setForm((f) => ({ ...f, teacherId: e.target.value }))}
+            >
+              <option value="">— Unassigned —</option>
+              {teachers.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.full_name}
                 </option>
               ))}
             </Select>
@@ -341,19 +434,30 @@ function CreateUserForm({ onDone }: { onDone: () => void }) {
         </Button>
         <Button type="submit" disabled={busy}>
           {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <UserPlus className="h-4 w-4" />}
-          Create user
+          Create {isAdmin ? 'user' : 'student'}
         </Button>
       </div>
     </form>
   );
 }
 
-function EditUserForm({ user, onDone }: { user: Profile; onDone: () => void }) {
+function EditUserForm({
+  user,
+  isAdmin,
+  teachers,
+  onDone,
+}: {
+  user: Profile;
+  isAdmin: boolean;
+  teachers: Profile[];
+  onDone: () => void;
+}) {
   const [form, setForm] = useState({
     full_name: user.full_name,
     role: user.role,
     grade_level: user.grade_level == null ? '' : String(user.grade_level),
     school_name: user.school_name ?? '',
+    teacher_id: user.teacher_id ?? '',
   });
   const [busy, setBusy] = useState(false);
 
@@ -361,12 +465,21 @@ function EditUserForm({ user, onDone }: { user: Profile; onDone: () => void }) {
     e.preventDefault();
     setBusy(true);
     try {
-      await adminUpdateProfile(user.id, {
+      const patch: Parameters<typeof adminUpdateProfile>[1] = {
         full_name: form.full_name,
-        role: form.role,
-        grade_level: form.role === 'student' && form.grade_level !== '' ? Number(form.grade_level) : null,
         school_name: form.school_name.trim() || null,
-      });
+      };
+      if (isAdmin) {
+        patch.role = form.role;
+        if (form.role === 'student') {
+          patch.grade_level = form.grade_level !== '' ? Number(form.grade_level) : null;
+          patch.teacher_id = form.teacher_id || null;
+        }
+      } else {
+        // teacher — own students only; role stays student
+        patch.grade_level = form.grade_level !== '' ? Number(form.grade_level) : null;
+      }
+      await adminUpdateProfile(user.id, patch);
       toast.success('User updated');
       onDone();
     } catch (err: unknown) {
@@ -380,22 +493,26 @@ function EditUserForm({ user, onDone }: { user: Profile; onDone: () => void }) {
     <form onSubmit={submit} className="space-y-3">
       <DialogHeader>
         <DialogTitle>Edit user</DialogTitle>
-        <DialogDescription>Update role, grade level, or school for this account</DialogDescription>
+        <DialogDescription>
+          {isAdmin ? 'Update role, grade, school, or teacher assignment.' : 'Update name, grade, or school.'}
+        </DialogDescription>
       </DialogHeader>
       <div>
         <Label>Full name</Label>
         <Input value={form.full_name} onChange={(e) => setForm({ ...form, full_name: e.target.value })} />
       </div>
       <div className="grid grid-cols-2 gap-2">
-        <div>
-          <Label>Role</Label>
-          <Select value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value as UserRole })}>
-            <option value="student">Student</option>
-            <option value="teacher">Teacher</option>
-            <option value="admin">Admin</option>
-          </Select>
-        </div>
-        {form.role === 'student' && (
+        {isAdmin && (
+          <div>
+            <Label>Role</Label>
+            <Select value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value as UserRole })}>
+              <option value="student">Student</option>
+              <option value="teacher">Teacher</option>
+              <option value="admin">Admin</option>
+            </Select>
+          </div>
+        )}
+        {(isAdmin ? form.role === 'student' : true) && (
           <div>
             <Label>Grade</Label>
             <Select value={form.grade_level} onChange={(e) => setForm({ ...form, grade_level: e.target.value })}>
@@ -409,6 +526,19 @@ function EditUserForm({ user, onDone }: { user: Profile; onDone: () => void }) {
           </div>
         )}
       </div>
+      {isAdmin && form.role === 'student' && (
+        <div>
+          <Label>Assigned teacher</Label>
+          <Select value={form.teacher_id} onChange={(e) => setForm({ ...form, teacher_id: e.target.value })}>
+            <option value="">— Unassigned —</option>
+            {teachers.map((t) => (
+              <option key={t.id} value={t.id}>
+                {t.full_name}
+              </option>
+            ))}
+          </Select>
+        </div>
+      )}
       <div>
         <Label>School</Label>
         <Input value={form.school_name} onChange={(e) => setForm({ ...form, school_name: e.target.value })} />
@@ -426,7 +556,15 @@ function EditUserForm({ user, onDone }: { user: Profile; onDone: () => void }) {
   );
 }
 
-function ResetPasswordForm({ user, onDone }: { user: Profile; onDone: () => void }) {
+function ResetPasswordForm({
+  user,
+  callerRole,
+  onDone,
+}: {
+  user: Profile;
+  callerRole: UserRole;
+  onDone: () => void;
+}) {
   const [pw, setPw] = useState('');
   const [show, setShow] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -439,7 +577,7 @@ function ResetPasswordForm({ user, onDone }: { user: Profile; onDone: () => void
     }
     setBusy(true);
     try {
-      await adminResetPassword(user.id, pw);
+      await adminResetPassword(user.id, pw, callerRole);
       toast.success('Password reset');
       onDone();
     } catch (err: unknown) {
