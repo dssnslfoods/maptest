@@ -42,6 +42,12 @@ export function TestActivePage() {
   const [loadingQuestion, setLoadingQuestion] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [elapsed, setElapsed] = useState(0);
+  // "exhausted" = the question bank has no remaining items for this student
+  // at their current adaptive level. A replenishment request has been opened;
+  // an admin browser will pick it up and the student polls for the new items.
+  const [exhausted, setExhausted] = useState(false);
+  const [replenishTimedOut, setReplenishTimedOut] = useState(false);
+  const [replenishElapsed, setReplenishElapsed] = useState(0);
 
   const loadSession = useCallback(async () => {
     if (!sessionId) return;
@@ -66,22 +72,65 @@ export function TestActivePage() {
     }
   }, [sessionId, profile?.id, navigate, setSession]);
 
-  const loadNextQuestion = useCallback(async () => {
-    if (!sessionId) return;
+  const loadNextQuestion = useCallback(async (): Promise<boolean> => {
+    if (!sessionId) return false;
     setLoadingQuestion(true);
     const { data, error } = await supabase.rpc('get_next_question', { p_session_id: sessionId });
     setLoadingQuestion(false);
     if (error) {
       toast.error(error.message);
-      return;
+      return false;
     }
     const next = (data as NextQuestion[] | null)?.[0] ?? null;
     if (!next) {
-      toast.error('No suitable question available. Please contact admin to expand the question bank.');
-      return;
+      // Bank is exhausted for this student at the current RIT/grade. Open a
+      // replenishment request — an admin browser will pick it up and feed
+      // the bank. We then poll get_next_question until one appears.
+      setExhausted(true);
+      void supabase
+        .rpc('request_replenishment', { p_session_id: sessionId })
+        .then(() => undefined, () => undefined);
+      return false;
     }
+    setExhausted(false);
+    setReplenishTimedOut(false);
     setQuestion(next);
+    return true;
   }, [sessionId, setQuestion]);
+
+  // While exhausted, poll the bank every 10s for up to ~5 minutes hoping a
+  // generated question lands. If nothing appears, surface the timeout state
+  // so the student knows to come back later.
+  useEffect(() => {
+    if (!exhausted || !sessionId) return;
+    let cancelled = false;
+    const POLL = 10_000;
+    const MAX_MS = 5 * 60 * 1000;
+    const start = Date.now();
+
+    const elapsedId = window.setInterval(() => {
+      setReplenishElapsed(Math.floor((Date.now() - start) / 1000));
+    }, 1000);
+
+    const tick = async () => {
+      if (cancelled) return;
+      if (Date.now() - start > MAX_MS) {
+        setReplenishTimedOut(true);
+        return;
+      }
+      const ok = await loadNextQuestion();
+      if (!ok && !cancelled) {
+        window.setTimeout(tick, POLL);
+      }
+    };
+    const firstId = window.setTimeout(tick, POLL);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(firstId);
+      window.clearInterval(elapsedId);
+    };
+  }, [exhausted, sessionId, loadNextQuestion]);
 
   useEffect(() => {
     loadSession();
@@ -161,7 +210,11 @@ export function TestActivePage() {
     }
     const next = (nextRes.data as NextQuestion[] | null)?.[0] ?? null;
     if (!next) {
-      toast.error('No suitable question available. Please contact admin to expand the question bank.');
+      // Bank exhausted — kick off the replenishment flow.
+      setExhausted(true);
+      void supabase
+        .rpc('request_replenishment', { p_session_id: sessionId })
+        .then(() => undefined, () => undefined);
       return;
     }
     setQuestion(next);
@@ -237,7 +290,18 @@ export function TestActivePage() {
       </header>
 
       <main className="container mx-auto w-full max-w-3xl flex-1 p-4 pt-6 md:p-8 md:pt-8">
-        {loadingQuestion || !currentQuestion ? (
+        {exhausted ? (
+          <ExhaustedCard
+            timedOut={replenishTimedOut}
+            elapsed={replenishElapsed}
+            onLeave={() => navigate('/dashboard')}
+            onRetry={() => {
+              setReplenishTimedOut(false);
+              setReplenishElapsed(0);
+              loadNextQuestion();
+            }}
+          />
+        ) : loadingQuestion || !currentQuestion ? (
           <Card className="p-12 text-center text-muted-foreground">
             <Loader2 className="mx-auto h-6 w-6 animate-spin" />
             <p className="mt-3 text-sm">Selecting next question…</p>
@@ -321,5 +385,65 @@ export function TestActivePage() {
       </main>
       <DeveloperFooter onAmbient />
     </div>
+  );
+}
+
+function ExhaustedCard({
+  timedOut,
+  elapsed,
+  onLeave,
+  onRetry,
+}: {
+  timedOut: boolean;
+  elapsed: number;
+  onLeave: () => void;
+  onRetry: () => void;
+}) {
+  const mm = Math.floor(elapsed / 60).toString();
+  const ss = (elapsed % 60).toString().padStart(2, '0');
+
+  if (timedOut) {
+    return (
+      <Card className="space-y-4 p-8 text-center">
+        <div className="text-3xl">⏳</div>
+        <h2 className="text-xl font-semibold tracking-tight">
+          We're preparing more questions for you
+        </h2>
+        <p className="mx-auto max-w-md text-sm text-muted-foreground">
+          We've notified your teacher that the question bank at your level needs
+          more items. Your progress so far is saved — please come back and resume
+          this test in a few minutes.
+        </p>
+        <div className="flex flex-wrap justify-center gap-2 pt-2">
+          <Button variant="outline" onClick={onRetry}>
+            Try again
+          </Button>
+          <Button onClick={onLeave}>Back to dashboard</Button>
+        </div>
+      </Card>
+    );
+  }
+
+  return (
+    <Card className="space-y-5 p-8 text-center">
+      <Loader2 className="mx-auto h-7 w-7 animate-spin text-primary" />
+      <h2 className="text-xl font-semibold tracking-tight">
+        Preparing more questions for you…
+      </h2>
+      <p className="mx-auto max-w-md text-sm text-muted-foreground">
+        You've answered every available question at your level. We're generating
+        new ones in the background — this usually takes 30 to 60 seconds.
+      </p>
+      <p className="font-mono text-xs text-muted-foreground">{`${mm}:${ss} elapsed`}</p>
+      <p className="text-[11px] text-muted-foreground">
+        Your progress is saved. You can also exit and come back later — the test
+        will resume where you left off.
+      </p>
+      <div className="pt-1">
+        <Button variant="outline" size="sm" onClick={onLeave}>
+          Exit for now
+        </Button>
+      </div>
+    </Card>
   );
 }

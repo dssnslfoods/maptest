@@ -4,6 +4,7 @@ import { useSignOut } from '@/hooks/use-auth';
 import { Button } from '@/components/ui/button';
 import { AmbientBackground } from '@/components/ambient-background';
 import { DeveloperFooter } from '@/components/developer-footer';
+import { useAutoReplenisher } from '@/features/admin/use-auto-replenisher';
 import {
   BookOpen,
   Home,
@@ -20,6 +21,8 @@ export function AppLayout() {
   const profile = useAuthStore((s) => s.profile);
   const signOut = useSignOut();
   const navigate = useNavigate();
+  // Admin browsers act as the Gemini worker for student replenishment.
+  useAutoReplenisher();
 
   const links: { to: string; label: string; icon: React.ReactNode; roles?: string[] }[] = [
     { to: '/dashboard', label: 'Dashboard', icon: <Home className="h-4 w-4" /> },
