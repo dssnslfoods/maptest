@@ -34,7 +34,16 @@ export default function App() {
       <QueryClientProvider client={qc}>
         <BrowserRouter>
           <AuthGate>
-            <Toaster richColors position="top-right" />
+            <Toaster
+              richColors
+              position="top-right"
+              offset={{ top: 76, right: 16 }}
+              mobileOffset={{ top: 12, right: 12, left: 12 }}
+              style={{ zIndex: 100 }}
+              toastOptions={{
+                className: 'shadow-[0_12px_40px_-12px_rgba(35,28,90,0.25)]',
+              }}
+            />
             <Routes>
               <Route path="/login" element={<LoginPage />} />
               <Route path="/signup" element={<SignupPage />} />
