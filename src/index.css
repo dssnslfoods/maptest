@@ -39,6 +39,19 @@
 
     --radius: 1rem;
 
+    /* ============================================================
+       Handoff design tokens — shared across login + dashboard
+       (login uses them directly; rest of the app keeps HSL tokens
+       above and only inherits --grad-bg as the page background)
+       ============================================================ */
+    --indigo-500: #6366F1;
+    --indigo-600: #5558E3;
+    --indigo-700: #4B45CC;
+    --purple-500: #8B5CF6;
+    --purple-600: #7C3AED;
+    --grad-bg:    linear-gradient(135deg, #DBE7FF 0%, #E9DDFF 50%, #FFDEEC 100%);
+    --grad-brand: linear-gradient(135deg, #6366F1 0%, #8B5CF6 50%, #C084FC 100%);
+
     /* glass material */
     --glass-bg: 255 255 255 / 0.55;
     --glass-bg-strong: 255 255 255 / 0.75;
@@ -104,16 +117,9 @@
     -moz-osx-font-smoothing: grayscale;
     text-rendering: optimizeLegibility;
     letter-spacing: -0.01em;
-    /* Vibrant ambient background — the canvas the glass refracts. */
-    background:
-      radial-gradient(120% 70% at 18% 12%, rgb(var(--ambient-blue) / 0.55) 0%, transparent 55%),
-      radial-gradient(95% 70% at 88% 20%, rgb(var(--ambient-pink) / 0.5) 0%, transparent 55%),
-      radial-gradient(95% 80% at 90% 95%, rgb(var(--ambient-violet) / 0.45) 0%, transparent 60%),
-      radial-gradient(95% 80% at 10% 92%, rgb(var(--ambient-cyan) / 0.45) 0%, transparent 60%),
-      radial-gradient(60% 50% at 50% 50%, rgb(var(--ambient-peach) / 0.18) 0%, transparent 70%),
-      linear-gradient(180deg, hsl(235 70% 97%) 0%, hsl(255 60% 96%) 100%);
+    /* Mesh gradient — matches the login hero's `--grad-bg` token exactly. */
+    background: var(--grad-bg);
     background-attachment: fixed;
-    background-size: cover;
   }
   h1, h2, h3 { letter-spacing: -0.024em; }
   ::selection { background: hsl(var(--primary) / 0.25); }
@@ -176,61 +182,9 @@
   transition: transform 120ms ease, box-shadow 120ms ease;
 }
 
-/* ----------------------------------------------------------------
-   Ambient floating orbs (rendered by <AmbientBackground />)
-   ---------------------------------------------------------------- */
-.orb {
-  position: fixed;
-  border-radius: 50%;
-  filter: blur(60px);
-  opacity: 0.55;
-  pointer-events: none;
-  z-index: 0;
-  will-change: transform;
-}
-.orb-1 {
-  width: 480px; height: 480px;
-  background: radial-gradient(circle, rgb(120 150 255 / 0.85), transparent 70%);
-  top: -120px; left: -60px;
-  animation: float-a 22s ease-in-out infinite;
-}
-.orb-2 {
-  width: 520px; height: 520px;
-  background: radial-gradient(circle, rgb(255 130 200 / 0.7), transparent 70%);
-  top: 5%; right: -120px;
-  animation: float-b 26s ease-in-out infinite;
-}
-.orb-3 {
-  width: 600px; height: 600px;
-  background: radial-gradient(circle, rgb(190 145 255 / 0.7), transparent 70%);
-  bottom: -160px; left: 18%;
-  animation: float-c 30s ease-in-out infinite;
-}
-.orb-4 {
-  width: 420px; height: 420px;
-  background: radial-gradient(circle, rgb(120 230 255 / 0.7), transparent 70%);
-  bottom: 8%; right: 12%;
-  animation: float-d 28s ease-in-out infinite;
-}
-@keyframes float-a {
-  0%, 100% { transform: translate(0, 0) scale(1); }
-  50%      { transform: translate(40px, 60px) scale(1.08); }
-}
-@keyframes float-b {
-  0%, 100% { transform: translate(0, 0) scale(1); }
-  50%      { transform: translate(-60px, 40px) scale(1.1); }
-}
-@keyframes float-c {
-  0%, 100% { transform: translate(0, 0) scale(1); }
-  50%      { transform: translate(50px, -40px) scale(1.05); }
-}
-@keyframes float-d {
-  0%, 100% { transform: translate(0, 0) scale(1); }
-  50%      { transform: translate(-30px, -50px) scale(1.08); }
-}
-
-/* App root sits above the orbs */
-#root > * { position: relative; z-index: 1; }
+/* Animated ambient orbs were retired in favor of the single static mesh
+   gradient on body (see --grad-bg). <AmbientBackground /> is now a no-op
+   kept for backwards compatibility. */
 
 /* ----------------------------------------------------------------
    Question-feedback flashes (kept from previous design)

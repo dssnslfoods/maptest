@@ -1,13 +1,6 @@
-// Floating colored orbs that sit behind the entire app. The glass surfaces
-// (cards, header, dialogs) refract these as you scroll, which is what gives
-// the macOS 26 "Liquid Glass" material its sense of depth.
+// Retired: the animated orb background was replaced by a single static mesh
+// gradient on the body (--grad-bg in index.css) to match the new login hero.
+// Kept as a no-op so existing imports across pages still resolve cleanly.
 export function AmbientBackground() {
-  return (
-    <div aria-hidden className="pointer-events-none fixed inset-0 -z-10">
-      <div className="orb orb-1" />
-      <div className="orb orb-2" />
-      <div className="orb orb-3" />
-      <div className="orb orb-4" />
-    </div>
-  );
+  return null;
 }

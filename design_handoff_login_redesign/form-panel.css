@@ -1,0 +1,132 @@
+/* Form panel styles — shared form chrome positioned inside artboards */
+
+.mt-form-wrap {
+  position: absolute;
+  top: 0; right: 0; bottom: 0;
+  width: 560px;
+  background: var(--surface);
+  padding: 56px 64px;
+  display: flex;
+  flex-direction: column;
+  z-index: 2;
+}
+
+.mt-form {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  margin: auto 0;
+  width: 100%;
+}
+
+.mt-form-head {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 8px;
+  margin-bottom: 4px;
+}
+.mt-form-head .mt-chip { align-self: flex-start; margin-bottom: 4px; }
+
+.mt-field-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.mt-sso-row {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+}
+
+.mt-foot {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  font-size: 13px;
+  color: var(--muted);
+  margin-top: 6px;
+}
+.mt-foot-sm {
+  font-size: 11px;
+  color: var(--muted-2);
+  letter-spacing: 0.02em;
+}
+
+/* === Hero side (left pane) — shared === */
+.mt-hero {
+  position: absolute;
+  top: 0; left: 0; bottom: 0;
+  right: 560px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 56px;
+}
+
+.mt-hero-head {
+  position: relative;
+  z-index: 3;
+  max-width: 540px;
+  color: var(--ink);
+}
+.mt-hero-head .mt-eyebrow { color: var(--indigo-700); margin-bottom: 14px; display: inline-block; }
+.mt-hero-h {
+  font: 700 48px/1.05 var(--font-sans);
+  letter-spacing: -0.03em;
+  margin: 0 0 14px;
+}
+.mt-hero-h em {
+  font-family: var(--font-serif);
+  font-weight: 400;
+  font-style: italic;
+  letter-spacing: -0.01em;
+  color: var(--indigo-700);
+}
+.mt-hero-sub {
+  font: 400 16px/1.55 var(--font-sans);
+  color: var(--ink-soft);
+  opacity: 0.75;
+  max-width: 440px;
+  margin: 0;
+}
+
+.mt-stats {
+  position: relative;
+  z-index: 3;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 14px;
+  max-width: 640px;
+}
+.mt-stat {
+  padding: 18px 18px;
+  background: rgba(255, 255, 255, 0.65);
+  backdrop-filter: blur(20px) saturate(140%);
+  -webkit-backdrop-filter: blur(20px) saturate(140%);
+  border: 1px solid rgba(255, 255, 255, 0.6);
+  border-radius: var(--r-lg);
+  box-shadow: 0 8px 24px -12px rgba(15, 23, 42, 0.15);
+}
+.mt-stat-n {
+  font: 700 28px/1 var(--font-sans);
+  letter-spacing: -0.03em;
+  color: var(--ink);
+  margin-bottom: 4px;
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+}
+.mt-stat-n sup {
+  font-size: 16px;
+  color: var(--indigo-600);
+  font-weight: 700;
+}
+.mt-stat-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--muted);
+  line-height: 1.4;
+}

@@ -1,0 +1,64 @@
+/* Variation A — Single photograph hero */
+
+.va-hero {
+  background: var(--grad-bg);
+  padding: 0;
+}
+
+.va-photo-frame {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+}
+.va-photo-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center;
+  display: block;
+  transition: opacity .3s;
+}
+
+/* Top gradient — softens the photo around hero copy */
+.va-photo-overlay {
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(180deg,
+      rgba(99, 102, 241, 0.55) 0%,
+      rgba(99, 102, 241, 0.25) 25%,
+      rgba(15, 23, 42, 0.0) 50%,
+      rgba(15, 23, 42, 0.0) 65%,
+      rgba(15, 23, 42, 0.55) 100%);
+  pointer-events: none;
+}
+
+/* Soft brand color cast on photo */
+.va-photo-shadow {
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(circle at 100% 100%, rgba(124, 58, 237, 0.4) 0%, transparent 50%),
+    radial-gradient(circle at 0% 0%, rgba(99, 102, 241, 0.35) 0%, transparent 45%);
+  mix-blend-mode: multiply;
+  pointer-events: none;
+  opacity: 0.7;
+}
+
+.va-head {
+  position: relative;
+  z-index: 4;
+  padding: 56px 56px 0;
+  max-width: 540px;
+}
+.va-eyebrow { color: white !important; opacity: 0.9; }
+.va-h { color: white; text-shadow: 0 2px 20px rgba(15, 23, 42, 0.25); }
+.va-h em { color: #FFDEEC; font-style: italic; }
+.va-sub { color: white !important; opacity: 0.92; text-shadow: 0 1px 14px rgba(15, 23, 42, 0.3); }
+
+.va-stats {
+  position: absolute;
+  bottom: 48px; left: 56px; right: 56px;
+  z-index: 4;
+  max-width: none;
+}
