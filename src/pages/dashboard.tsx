@@ -1,6 +1,6 @@
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '@/store/auth';
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabase';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -10,11 +10,15 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { format } from 'date-fns';
 import { GRADE_LABELS } from '@/lib/utils';
 import type { TestSession } from '@/types/database';
-import { ArrowRight, Calendar, Play } from 'lucide-react';
+import { ArrowRight, Calendar, Play, Trash2 } from 'lucide-react';
+import { toast } from 'sonner';
 
 export function DashboardPage() {
   const profile = useAuthStore((s) => s.profile);
   const navigate = useNavigate();
+  const qc = useQueryClient();
+  const isAdmin = profile?.role === 'admin';
+  const isTeacherOrAdmin = profile?.role === 'teacher' || profile?.role === 'admin';
 
   const { data: sessions, isLoading } = useQuery({
     queryKey: ['dashboard-sessions', profile?.id],
@@ -30,6 +34,25 @@ export function DashboardPage() {
       if (error) throw error;
       return (data ?? []) as TestSession[];
     },
+  });
+
+  const deleteSession = useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase.rpc('admin_delete_session', { p_session_id: id });
+      if (error) {
+        if (error.code === 'PGRST202') {
+          throw new Error(
+            'This action requires migration 007_admin_delete_session.sql to be applied in the Supabase dashboard.',
+          );
+        }
+        throw new Error(error.message);
+      }
+    },
+    onSuccess: () => {
+      toast.success('Session deleted');
+      qc.invalidateQueries({ queryKey: ['dashboard-sessions'] });
+    },
+    onError: (e: Error) => toast.error(e.message),
   });
 
   const inProgress = sessions?.find((s) => s.status === 'in_progress');
@@ -136,17 +159,43 @@ export function DashboardPage() {
                     <TableCell>{s.final_rit_english ?? s.current_rit_english ?? '—'}</TableCell>
                     <TableCell>{s.final_rit_math ?? s.current_rit_math ?? '—'}</TableCell>
                     <TableCell className="text-right">
-                      {s.status === 'completed' ? (
-                        <Link to={`/results/${s.id}`} className="text-sm text-primary hover:underline">
-                          View results
-                        </Link>
-                      ) : s.status === 'in_progress' && profile?.role === 'student' ? (
-                        <Link to={`/test/${s.id}`} className="text-sm text-primary hover:underline">
-                          Resume
-                        </Link>
-                      ) : (
-                        <span className="text-xs text-muted-foreground">—</span>
-                      )}
+                      <div className="flex items-center justify-end gap-1">
+                        {s.status === 'completed' ? (
+                          <Link
+                            to={`/results/${s.id}`}
+                            className="rounded-lg px-2 py-1 text-sm font-medium text-primary hover:bg-white/55"
+                          >
+                            {isTeacherOrAdmin ? 'Review' : 'View results'}
+                          </Link>
+                        ) : s.status === 'in_progress' && profile?.role === 'student' ? (
+                          <Link
+                            to={`/test/${s.id}`}
+                            className="rounded-lg px-2 py-1 text-sm font-medium text-primary hover:bg-white/55"
+                          >
+                            Resume
+                          </Link>
+                        ) : (
+                          <span className="text-xs text-muted-foreground">—</span>
+                        )}
+                        {isAdmin && (
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            title="Delete session"
+                            onClick={() => {
+                              if (
+                                confirm(
+                                  `Delete this session?\n\nAll ${s.questions_answered} responses will also be deleted. This cannot be undone.`,
+                                )
+                              ) {
+                                deleteSession.mutate(s.id);
+                              }
+                            }}
+                          >
+                            <Trash2 className="h-4 w-4 text-destructive" />
+                          </Button>
+                        )}
+                      </div>
                     </TableCell>
                   </TableRow>
                 ))}

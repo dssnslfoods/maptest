@@ -6,6 +6,10 @@ import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { formatStrand, GRADE_LABELS } from '@/lib/utils';
 import { approximatePercentile, gradeNorm, performanceBand } from '@/lib/rit';
+import { useAuthStore } from '@/store/auth';
+import { MathText } from '@/features/test/question-renderer';
+import { Check, X } from 'lucide-react';
+import { cn } from '@/lib/utils';
 import type { Question, TestResponse, TestSession } from '@/types/database';
 import {
   Bar,
@@ -23,7 +27,7 @@ import { BookOpen, Calculator, Clock, ArrowLeft } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
 interface ResponseWithQuestion extends TestResponse {
-  questions: Pick<Question, 'strand' | 'subject'>;
+  questions: Question | null;
 }
 
 export function ResultsPage() {
@@ -49,13 +53,16 @@ export function ResultsPage() {
     queryFn: async (): Promise<ResponseWithQuestion[]> => {
       const { data, error } = await supabase
         .from('test_responses')
-        .select('*, questions(strand, subject)')
+        .select('*, questions(*)')
         .eq('session_id', sessionId!)
         .order('sequence_number');
       if (error) throw error;
       return (data ?? []) as unknown as ResponseWithQuestion[];
     },
   });
+
+  const profile = useAuthStore((s) => s.profile);
+  const canReview = profile?.role === 'teacher' || profile?.role === 'admin';
 
   if (loadingSession || loadingResp) {
     return (
@@ -176,7 +183,153 @@ export function ResultsPage() {
           </ResponsiveContainer>
         </CardContent>
       </Card>
+
+      {canReview && responses && responses.length > 0 && (
+        <QuestionReview responses={responses} />
+      )}
     </div>
+  );
+}
+
+function QuestionReview({ responses }: { responses: ResponseWithQuestion[] }) {
+  const correctCount = responses.filter((r) => r.is_correct).length;
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Question review</CardTitle>
+        <CardDescription>
+          Teacher/admin view — student answer vs. correct answer for all {responses.length} items
+          {' · '}
+          <span className="font-medium text-foreground">{correctCount} correct</span>
+          {' · '}
+          <span className="font-medium text-foreground">{responses.length - correctCount} wrong</span>
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {responses.map((r) => (
+          <QuestionReviewCard key={r.id} response={r} />
+        ))}
+      </CardContent>
+    </Card>
+  );
+}
+
+function QuestionReviewCard({ response }: { response: ResponseWithQuestion }) {
+  const q = response.questions;
+  if (!q) return null;
+  const letters: Array<'A' | 'B' | 'C' | 'D'> = ['A', 'B', 'C', 'D'];
+  return (
+    <details className="group rounded-2xl border border-white/50 bg-white/40 backdrop-blur-md transition-colors open:bg-white/55">
+      <summary className="flex cursor-pointer list-none flex-wrap items-center gap-3 p-4 [&::-webkit-details-marker]:hidden">
+        <span
+          className={cn(
+            'flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-semibold',
+            response.is_correct
+              ? 'bg-emerald-100 text-emerald-700'
+              : 'bg-rose-100 text-rose-700',
+          )}
+        >
+          {response.sequence_number + 1}
+        </span>
+        <Badge variant={response.subject === 'math' ? 'info' : 'success'}>
+          {response.subject === 'math' ? 'Math' : 'English'}
+        </Badge>
+        <Badge variant="outline">RIT {response.difficulty_rit_at_serve}</Badge>
+        <Badge variant="outline">{formatStrand(q.strand)}</Badge>
+        <div className="ml-auto flex items-center gap-3 text-xs text-muted-foreground">
+          <span>{response.time_spent_seconds ?? 0}s</span>
+          <span className="inline-flex items-center gap-1 font-medium">
+            <span className="text-foreground/70">You:</span>
+            <span
+              className={cn(
+                'inline-flex h-6 min-w-6 items-center justify-center rounded-md px-1.5 font-semibold',
+                response.is_correct
+                  ? 'bg-emerald-100 text-emerald-800'
+                  : 'bg-rose-100 text-rose-700',
+              )}
+            >
+              {response.student_answer ?? '—'}
+            </span>
+            <span className="text-foreground/70 ml-1">Key:</span>
+            <span className="inline-flex h-6 min-w-6 items-center justify-center rounded-md bg-emerald-100 px-1.5 font-semibold text-emerald-800">
+              {q.correct_answer}
+            </span>
+          </span>
+          <span className="text-foreground/50 transition group-open:rotate-180">▾</span>
+        </div>
+      </summary>
+      <div className="space-y-3 border-t border-white/50 px-4 pb-4 pt-4">
+        {q.passage_text && (
+          <div className="max-h-56 overflow-y-auto rounded-xl border border-white/50 bg-white/50 p-3 text-sm leading-relaxed glass-scroll">
+            <div className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+              Passage
+            </div>
+            <MathText text={q.passage_text} />
+          </div>
+        )}
+        <div className="text-sm font-medium leading-snug">
+          <MathText text={q.question_text} />
+        </div>
+        <ul className="space-y-1.5 text-sm">
+          {letters.map((l) => {
+            const isCorrect = q.correct_answer === l;
+            const isStudent = response.student_answer === l;
+            const variant: 'correct' | 'wrong' | 'neutral' = isCorrect
+              ? 'correct'
+              : isStudent
+                ? 'wrong'
+                : 'neutral';
+            return (
+              <li
+                key={l}
+                className={cn(
+                  'flex items-start gap-3 rounded-xl border px-3 py-2',
+                  variant === 'correct' &&
+                    'border-emerald-300 bg-emerald-50/80 ring-1 ring-emerald-200',
+                  variant === 'wrong' &&
+                    'border-rose-300 bg-rose-50/80 ring-1 ring-rose-200',
+                  variant === 'neutral' && 'border-white/55 bg-white/40',
+                )}
+              >
+                <span
+                  className={cn(
+                    'flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-xs font-semibold',
+                    variant === 'correct' && 'bg-emerald-600 text-white',
+                    variant === 'wrong' && 'bg-rose-600 text-white',
+                    variant === 'neutral' && 'bg-white/70 text-foreground/70',
+                  )}
+                >
+                  {l}
+                </span>
+                <span className="flex-1 pt-0.5">
+                  <MathText text={q[`choice_${l.toLowerCase()}` as 'choice_a']} />
+                </span>
+                {isCorrect && (
+                  <Badge variant="success" className="shrink-0">
+                    <Check className="h-3 w-3" />
+                    Correct
+                  </Badge>
+                )}
+                {!isCorrect && isStudent && (
+                  <Badge variant="destructive" className="shrink-0">
+                    <X className="h-3 w-3" />
+                    Student
+                  </Badge>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+        {q.explanation && (
+          <div className="rounded-xl border border-sky-200/70 bg-sky-50/70 p-3 text-sm leading-relaxed text-sky-900">
+            <div className="mb-0.5 text-[10px] font-semibold uppercase tracking-wider text-sky-700">
+              Explanation
+            </div>
+            {q.explanation}
+          </div>
+        )}
+      </div>
+    </details>
   );
 }
 
