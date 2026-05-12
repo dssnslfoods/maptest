@@ -119,23 +119,51 @@ export function TestActivePage() {
     }
     const result = data as SubmitAnswerResult;
     setFeedback(result.is_correct ? 'correct' : 'wrong');
-    // Refresh local session counters
-    const { data: refreshed } = await supabase
-      .from('test_sessions')
-      .select('*')
-      .eq('id', sessionId)
-      .single();
-    if (refreshed) setSession(refreshed as TestSession);
 
-    setTimeout(() => {
-      setSubmitting(false);
-      setFeedback(null);
-      if (result.finished) {
+    // Update local session counters directly from the RPC payload — saves a
+    // round-trip vs. re-SELECTing the session row.
+    if (session) {
+      setSession({
+        ...session,
+        current_rit_math:
+          result.subject === 'math' ? result.new_rit : session.current_rit_math,
+        current_rit_english:
+          result.subject === 'english' ? result.new_rit : session.current_rit_english,
+        questions_answered: result.questions_answered,
+        status: result.finished ? 'completed' : session.status,
+        completed_at: result.finished ? new Date().toISOString() : session.completed_at,
+      });
+    }
+
+    if (result.finished) {
+      setTimeout(() => {
+        setFeedback(null);
+        setSubmitting(false);
         navigate(`/results/${sessionId}`);
-      } else {
-        loadNextQuestion();
-      }
-    }, 700);
+      }, 500);
+      return;
+    }
+
+    // Prefetch the next question in parallel with the feedback flash so the
+    // network round-trip overlaps with the 400ms animation instead of running
+    // after it.
+    const fetchNext = supabase.rpc('get_next_question', { p_session_id: sessionId });
+    const flash = new Promise<void>((r) => setTimeout(r, 400));
+    const [nextRes] = await Promise.all([fetchNext, flash]);
+
+    setFeedback(null);
+    setSubmitting(false);
+
+    if (nextRes.error) {
+      toast.error(nextRes.error.message);
+      return;
+    }
+    const next = (nextRes.data as NextQuestion[] | null)?.[0] ?? null;
+    if (!next) {
+      toast.error('No suitable question available. Please contact admin to expand the question bank.');
+      return;
+    }
+    setQuestion(next);
   };
 
   const abandon = async () => {
