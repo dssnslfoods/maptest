@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { AmbientBackground } from '@/components/ambient-background';
 import { supabase } from '@/lib/supabase';
 import { useAuthStore } from '@/store/auth';
 import { toast } from 'sonner';
@@ -32,15 +33,21 @@ export function LoginPage() {
   };
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-muted/30 p-4">
-      <Card className="w-full max-w-md">
+    <div className="relative flex min-h-screen items-center justify-center p-4">
+      <AmbientBackground />
+      <Card className="w-full max-w-md p-2">
         <CardHeader>
-          <div className="mb-2 inline-flex items-center gap-2 text-primary">
-            <BookOpen className="h-6 w-6" />
-            <span className="text-base font-semibold">MAP Test</span>
+          <div className="mb-3 inline-flex items-center gap-2">
+            <span
+              className="flex h-9 w-9 items-center justify-center rounded-xl text-white shadow-[inset_0_1px_0_0_rgba(255,255,255,0.5)]"
+              style={{ backgroundImage: 'linear-gradient(135deg, hsl(235 88% 62%), hsl(280 80% 65%))' }}
+            >
+              <BookOpen className="h-4.5 w-4.5" />
+            </span>
+            <span className="text-base font-semibold tracking-tight">MAP Test</span>
           </div>
-          <CardTitle>Sign in</CardTitle>
-          <CardDescription>Adaptive measure of academic progress</CardDescription>
+          <CardTitle className="text-2xl">Welcome back</CardTitle>
+          <CardDescription>Adaptive measure of academic progress.</CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
@@ -50,6 +57,7 @@ export function LoginPage() {
                 id="email"
                 type="email"
                 autoComplete="email"
+                placeholder="you@school.edu"
                 required
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
@@ -66,7 +74,7 @@ export function LoginPage() {
                 onChange={(e) => setPassword(e.target.value)}
               />
             </div>
-            <Button type="submit" className="w-full" disabled={busy}>
+            <Button type="submit" size="lg" className="w-full" disabled={busy}>
               {busy && <Loader2 className="h-4 w-4 animate-spin" />}
               Sign in
             </Button>

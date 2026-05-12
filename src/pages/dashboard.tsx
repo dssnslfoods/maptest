@@ -38,13 +38,16 @@ export function DashboardPage() {
     <div className="container mx-auto space-y-6 p-4 md:p-8">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">
+          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-primary/70">
+            {profile?.role === 'student' ? 'Student' : profile?.role === 'teacher' ? 'Teacher' : 'Admin'}
+          </p>
+          <h1 className="mt-1 text-4xl font-bold tracking-tight">
             Welcome, {profile?.full_name?.split(' ')[0]}
           </h1>
-          <p className="text-muted-foreground">
+          <p className="mt-1 text-muted-foreground">
             {profile?.role === 'student'
-              ? 'Track your progress and take a new MAP test'
-              : 'Overview of recent student activity'}
+              ? 'Track your progress and take a new MAP test.'
+              : 'Overview of recent student activity.'}
           </p>
         </div>
         {profile?.role === 'student' && (

@@ -14,6 +14,7 @@ import type {
   SubmitAnswerResult,
   TestSession,
 } from '@/types/database';
+import { AmbientBackground } from '@/components/ambient-background';
 import { BookOpen, Calculator, Clock, Loader2, LogOut } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -167,34 +168,33 @@ export function TestActivePage() {
   return (
     <div
       className={cn(
-        'flex min-h-screen flex-col bg-background',
+        'relative flex min-h-screen flex-col',
         feedback === 'correct' && 'test-flash-correct',
         feedback === 'wrong' && 'test-flash-wrong',
       )}
     >
-      <header className="sticky top-0 z-20 border-b bg-background/95 backdrop-blur">
-        <div className="container mx-auto flex items-center justify-between gap-3 px-4 py-3">
-          <div className="flex items-center gap-3">
+      <AmbientBackground />
+      <header className="sticky top-3 z-20 mx-3 md:mx-6">
+        <div className="glass-strong mx-auto flex max-w-3xl items-center gap-3 rounded-2xl px-4 py-2.5">
+          <div className="flex items-center gap-2">
             {currentQuestion && (
               <Badge variant={currentQuestion.subject === 'math' ? 'info' : 'success'}>
-                <span className="inline-flex items-center gap-1">
-                  {subjectIcon}
-                  {currentQuestion.subject === 'math' ? 'Math' : 'English'}
-                </span>
+                {subjectIcon}
+                {currentQuestion.subject === 'math' ? 'Math' : 'English'}
               </Badge>
             )}
-            <div className="text-sm font-medium">
-              Question {Math.min(answered + 1, TOTAL_QUESTIONS)} of {TOTAL_QUESTIONS}
+            <div className="text-sm font-semibold tracking-tight">
+              {Math.min(answered + 1, TOTAL_QUESTIONS)}
+              <span className="text-muted-foreground"> / {TOTAL_QUESTIONS}</span>
             </div>
           </div>
-          <div className="hidden items-center gap-3 text-xs text-muted-foreground md:flex">
-            <span>Current RIT</span>
-            <Badge variant="outline">M {session.current_rit_math ?? '—'}</Badge>
-            <Badge variant="outline">E {session.current_rit_english ?? '—'}</Badge>
+          <div className="hidden flex-1 items-center justify-center gap-2 text-xs text-muted-foreground md:flex">
+            <Badge variant="outline">M · {session.current_rit_math ?? '—'}</Badge>
+            <Badge variant="outline">E · {session.current_rit_english ?? '—'}</Badge>
           </div>
-          <div className="flex items-center gap-3">
-            <div className="hidden items-center gap-1 text-sm text-muted-foreground sm:flex">
-              <Clock className="h-4 w-4" />
+          <div className="ml-auto flex items-center gap-2">
+            <div className="hidden items-center gap-1 text-xs text-muted-foreground sm:flex">
+              <Clock className="h-3.5 w-3.5" />
               {elapsed}s
             </div>
             <Button variant="ghost" size="sm" onClick={abandon}>
@@ -202,20 +202,22 @@ export function TestActivePage() {
             </Button>
           </div>
         </div>
-        <Progress value={answered} max={TOTAL_QUESTIONS} className="h-1 rounded-none" />
+        <div className="mx-auto mt-2 max-w-3xl px-1">
+          <Progress value={answered} max={TOTAL_QUESTIONS} className="h-1.5" />
+        </div>
       </header>
 
-      <main className="container mx-auto w-full max-w-3xl flex-1 p-4 md:p-8">
+      <main className="container mx-auto w-full max-w-3xl flex-1 p-4 pt-6 md:p-8 md:pt-8">
         {loadingQuestion || !currentQuestion ? (
-          <Card className="p-8 text-center text-muted-foreground">
+          <Card className="p-12 text-center text-muted-foreground">
             <Loader2 className="mx-auto h-6 w-6 animate-spin" />
             <p className="mt-3 text-sm">Selecting next question…</p>
           </Card>
         ) : (
           <Card className="space-y-6 p-6 md:p-8">
             {currentQuestion.passage_text && (
-              <div className="max-h-72 overflow-y-auto rounded-md border bg-muted/40 p-4 text-sm leading-relaxed">
-                <div className="mb-1 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+              <div className="max-h-72 overflow-y-auto rounded-xl border border-white/50 bg-white/40 p-4 text-sm leading-relaxed backdrop-blur glass-scroll">
+                <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
                   Passage
                 </div>
                 <MathText text={currentQuestion.passage_text} />
@@ -226,15 +228,15 @@ export function TestActivePage() {
               <img
                 src={currentQuestion.question_image_url}
                 alt=""
-                className="mx-auto max-h-72 rounded-md border"
+                className="mx-auto max-h-72 rounded-xl border border-white/50 shadow-sm"
               />
             )}
 
-            <div className="text-lg font-medium leading-snug">
+            <div className="text-lg font-medium leading-snug text-foreground/90">
               <MathText text={currentQuestion.question_text} />
             </div>
 
-            <div className="grid gap-2">
+            <div className="grid gap-2.5">
               {(['A', 'B', 'C', 'D'] as Choice[]).map((letter) => {
                 const text = currentQuestion[`choice_${letter.toLowerCase()}` as 'choice_a'];
                 const active = selectedAnswer === letter;
@@ -245,18 +247,26 @@ export function TestActivePage() {
                     onClick={() => !submitting && setSelectedAnswer(letter)}
                     disabled={submitting}
                     className={cn(
-                      'flex w-full items-start gap-3 rounded-md border bg-background p-3 text-left transition-colors',
+                      'group flex w-full items-start gap-3 rounded-xl border bg-white/50 p-3.5 text-left backdrop-blur-md',
+                      'transition-all duration-200 ease-out shadow-[inset_0_1px_0_0_rgba(255,255,255,0.7)]',
                       active
-                        ? 'border-primary bg-primary/5 ring-2 ring-primary'
-                        : 'hover:border-primary/40 hover:bg-muted/50',
+                        ? 'border-primary/60 bg-primary/10 ring-2 ring-primary/30 -translate-y-px shadow-[0_8px_24px_-8px_rgba(91,107,255,0.35)]'
+                        : 'border-white/60 hover:-translate-y-px hover:bg-white/70 hover:shadow-[0_6px_18px_-6px_rgba(70,80,160,0.18)]',
                       submitting && 'opacity-70',
                     )}
                   >
                     <span
                       className={cn(
-                        'flex h-7 w-7 shrink-0 items-center justify-center rounded-full border text-sm font-semibold',
-                        active ? 'border-primary bg-primary text-primary-foreground' : 'bg-muted',
+                        'flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-sm font-semibold transition-colors',
+                        active
+                          ? 'text-white shadow-[inset_0_1px_0_0_rgba(255,255,255,0.45)]'
+                          : 'bg-white/70 text-foreground/70 group-hover:bg-white',
                       )}
+                      style={
+                        active
+                          ? { backgroundImage: 'linear-gradient(135deg, hsl(235 88% 62%), hsl(280 80% 65%))' }
+                          : undefined
+                      }
                     >
                       {letter}
                     </span>
@@ -268,9 +278,9 @@ export function TestActivePage() {
               })}
             </div>
 
-            <div className="flex items-center justify-between border-t pt-4">
+            <div className="flex items-center justify-between border-t border-white/50 pt-4">
               <p className="text-xs text-muted-foreground">
-                Adaptive item · No backtracking · Choose carefully
+                Adaptive · No backtracking · Choose carefully
               </p>
               <Button size="lg" onClick={submit} disabled={!selectedAnswer || submitting}>
                 {submitting && <Loader2 className="h-4 w-4 animate-spin" />}
