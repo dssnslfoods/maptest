@@ -36,6 +36,7 @@ export function AdminGeneratorPage() {
   const [targetRit, setTargetRit] = useState(gradeNorm('math', 5));
   const [count, setCount] = useState(3);
   const [busy, setBusy] = useState(false);
+  const [retryStatus, setRetryStatus] = useState<string | null>(null);
   const [drafts, setDrafts] = useState<Draft[]>([]);
 
   const { data: settings } = useQuery({
@@ -84,9 +85,22 @@ export function AdminGeneratorPage() {
       return;
     }
     setBusy(true);
+    setRetryStatus(null);
     try {
       const apiKey = await decryptApiKey(settings!.gemini_api_key_encrypted!, profile.id);
-      const result = await generateQuestions({ apiKey, subject, strand, gradeBand, targetRit, count });
+      const result = await generateQuestions(
+        { apiKey, subject, strand, gradeBand, targetRit, count },
+        {
+          maxRetries: 3,
+          onRetry: (attempt, delayMs) => {
+            const secs = Math.round(delayMs / 1000);
+            const msg = `Gemini overloaded — retrying in ${secs}s (attempt ${attempt + 1}/3)`;
+            setRetryStatus(msg);
+            toast.message(msg);
+          },
+        },
+      );
+      setRetryStatus(null);
       setDrafts(
         result.questions.map((q, i) => ({ ...q, localId: `${Date.now()}-${i}` })),
       );
@@ -118,9 +132,10 @@ export function AdminGeneratorPage() {
       }
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : 'Generation failed';
-      toast.error(msg);
+      toast.error(msg, { duration: 8000 });
     } finally {
       setBusy(false);
+      setRetryStatus(null);
     }
   };
 
@@ -229,7 +244,12 @@ export function AdminGeneratorPage() {
               />
             </div>
           </div>
-          <div className="mt-4 flex justify-end">
+          <div className="mt-4 flex items-center justify-between gap-3">
+            {retryStatus ? (
+              <p className="text-xs text-amber-700">{retryStatus}</p>
+            ) : (
+              <span />
+            )}
             <Button onClick={handleGenerate} disabled={busy || !hasApiKey} size="lg">
               {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
               Generate {count} question{count > 1 ? 's' : ''}

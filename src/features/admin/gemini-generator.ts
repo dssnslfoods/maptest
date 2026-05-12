@@ -25,10 +25,43 @@ export type GenerationParams = {
   count: number;
 };
 
-export async function generateQuestions(p: GenerationParams): Promise<{
-  questions: GeneratedQuestion[];
-  prompt: string;
-}> {
+export interface GenerateOptions {
+  maxRetries?: number;
+  onRetry?: (attempt: number, delayMs: number, error: Error) => void;
+}
+
+// Detect retryable Gemini failures — 503 (overloaded), 429 (rate limit),
+// 500 (transient internal). Anything else (auth, schema, etc.) is fatal.
+function isTransient(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err);
+  return /\b(503|429|500)\b|overloaded|unavailable|temporarily|rate.?limit/i.test(msg);
+}
+
+// Map a raw SDK error into a friendlier message
+function humanize(err: unknown): string {
+  const raw = err instanceof Error ? err.message : String(err);
+  if (/\b503\b|overloaded|unavailable/i.test(raw)) {
+    return 'Gemini is temporarily overloaded (503). Please try again in a minute or two.';
+  }
+  if (/\b429\b|rate.?limit/i.test(raw)) {
+    return 'Gemini rate limit hit (429). Wait a moment and retry, or generate fewer questions per batch.';
+  }
+  if (/\b401\b|api.?key|invalid|unauthor/i.test(raw)) {
+    return 'Gemini rejected the API key (401). Check the key in Settings → AI provider settings.';
+  }
+  if (/\b400\b|invalid.?request/i.test(raw)) {
+    return 'Gemini rejected the request (400). The prompt may be malformed — try a smaller count.';
+  }
+  return raw;
+}
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+export async function generateQuestions(
+  p: GenerationParams,
+  options: GenerateOptions = {},
+): Promise<{ questions: GeneratedQuestion[]; prompt: string }> {
+  const maxRetries = options.maxRetries ?? 3;
   const genAI = new GoogleGenerativeAI(p.apiKey);
   const model = genAI.getGenerativeModel({
     model: 'gemini-2.5-flash',
@@ -39,10 +72,30 @@ export async function generateQuestions(p: GenerationParams): Promise<{
   });
 
   const prompt = buildPrompt(p);
-  const result = await model.generateContent(prompt);
-  const raw = result.response.text();
-  const parsed = BatchSchema.parse(JSON.parse(raw));
-  return { questions: parsed.questions, prompt };
+
+  let lastError: unknown;
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    try {
+      const result = await model.generateContent(prompt);
+      const raw = result.response.text();
+      const parsed = BatchSchema.parse(JSON.parse(raw));
+      return { questions: parsed.questions, prompt };
+    } catch (e) {
+      lastError = e;
+      const remaining = maxRetries - attempt - 1;
+      if (remaining > 0 && isTransient(e)) {
+        // Exponential backoff with jitter: 1.5s, 4s, 9s …
+        const baseDelay = 1500 * Math.pow(2, attempt);
+        const jitter = Math.floor(Math.random() * 500);
+        const delay = baseDelay + jitter;
+        options.onRetry?.(attempt + 1, delay, e instanceof Error ? e : new Error(String(e)));
+        await sleep(delay);
+        continue;
+      }
+      break;
+    }
+  }
+  throw new Error(humanize(lastError));
 }
 
 export async function testApiKey(apiKey: string): Promise<boolean> {
